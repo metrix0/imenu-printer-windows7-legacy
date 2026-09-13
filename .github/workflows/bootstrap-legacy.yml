@@ -63,6 +63,20 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup Python 3.11
+        if: env.NEEDS_BOOTSTRAP == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure node-gyp Python
+        if: env.NEEDS_BOOTSTRAP == 'true'
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          "PYTHON=$python" >> $env:GITHUB_ENV
+          "npm_config_python=$python" >> $env:GITHUB_ENV
+
       - name: Install dependencies
         if: env.NEEDS_BOOTSTRAP == 'true'
         run: npm install

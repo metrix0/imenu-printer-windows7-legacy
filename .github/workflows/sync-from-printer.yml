@@ -1,0 +1,241 @@
+name: Sync and build legacy printer
+
+on:
+  repository_dispatch:
+    types:
+      - printer-source-release
+  push:
+    branches:
+      - main
+    paths:
+      - .printer-source-trigger.json
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Printer version to sync
+        required: true
+        type: string
+      source_sha:
+        description: imenu-printer commit SHA to sync
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  statuses: write
+
+concurrency:
+  group: legacy-printer-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-build-release:
+    runs-on: windows-2022
+    env:
+      npm_config_msvs_version: 2022
+
+    steps:
+      - name: Checkout legacy repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve source version
+        id: source
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "repository_dispatch") {
+            $version = "${{ github.event.client_payload.version }}"
+            $sourceSha = "${{ github.event.client_payload.source_sha }}"
+          }
+          elseif ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.version }}"
+            $sourceSha = "${{ inputs.source_sha }}"
+          }
+          else {
+            $trigger = Get-Content ".printer-source-trigger.json" -Raw | ConvertFrom-Json
+            $version = [string]$trigger.version
+            $sourceSha = [string]$trigger.sourceSha
+          }
+
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Printer version was not provided."
+          }
+          if ($sourceSha -notmatch '^[0-9a-fA-F]{40}$') {
+            throw "Invalid imenu-printer source SHA: $sourceSha"
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "source_sha=$sourceSha" >> $env:GITHUB_OUTPUT
+          "VERSION=$version" >> $env:GITHUB_ENV
+          "SOURCE_SHA=$sourceSha" >> $env:GITHUB_ENV
+
+      - name: Checkout current iMenu printer source
+        uses: actions/checkout@v4
+        with:
+          repository: metrix0/imenu-printer
+          ref: ${{ steps.source.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Sync shared printer source
+        shell: pwsh
+        run: |
+          Copy-Item "source/config.json" "config.json" -Force
+          Copy-Item "source/index.html" "index.html" -Force
+          Copy-Item "source/main.cjs" "main.cjs" -Force
+          Copy-Item "source/preload.cjs" "preload.cjs" -Force
+          Copy-Item "source/receipt-settings.js" "receipt-settings.js" -Force
+          Remove-Item "source" -Recurse -Force
+
+      - name: Apply Windows 7 and 8 compatibility layer
+        shell: pwsh
+        run: |
+          $content = Get-Content "main.cjs" -Raw
+          $content = $content.Replace("const { SerialPort } = require('serialport')", "const SerialPort = require('serialport')")
+          $content = $content.Replace("Get-Printer | Select-Object Name,PortName | ConvertTo-Json -Compress", "Get-WmiObject Win32_Printer | Select-Object Name,PortName | ConvertTo-Json -Compress")
+          $content = $content -replace "new SerialPort\(\{\r?\n\s*path: config\.PRINTER_COM_PORT,", "new SerialPort(config.PRINTER_COM_PORT, {"
+          $content = $content.Replace('const versionLabel = `Versão ${app.getVersion()}`', 'const versionLabel = `Versão ${app.getVersion()} Legacy`')
+          [IO.File]::WriteAllText((Join-Path $PWD "main.cjs"), $content, [Text.UTF8Encoding]::new($false))
+
+      - name: Keep legacy runtime version aligned
+        shell: pwsh
+        run: npm version $env:VERSION --no-git-tag-version --allow-same-version
+
+      - name: Validate legacy compatibility layer
+        shell: pwsh
+        run: |
+          $content = Get-Content "main.cjs" -Raw
+          $package = Get-Content "package.json" -Raw | ConvertFrom-Json
+
+          if (-not $content.Contains("const SerialPort = require('serialport')")) {
+            throw "Legacy serialport import was not applied."
+          }
+          if ($content.Contains("const { SerialPort } = require('serialport')")) {
+            throw "Modern serialport import is still present."
+          }
+          if (-not $content.Contains("Get-WmiObject Win32_Printer | Select-Object Name,PortName | ConvertTo-Json -Compress")) {
+            throw "Windows 7 printer discovery compatibility was not applied."
+          }
+          if (-not $content.Contains("new SerialPort(config.PRINTER_COM_PORT, {")) {
+            throw "Legacy serialport constructor compatibility was not applied."
+          }
+          if (-not $content.Contains('const versionLabel = `Versão ${app.getVersion()} Legacy`')) {
+            throw "Legacy version label was not applied."
+          }
+          if ($package.version -ne $env:VERSION) {
+            throw "Legacy package version does not match $env:VERSION."
+          }
+          if ($package.dependencies.serialport -ne "9.2.8") {
+            throw "Legacy serialport must remain pinned to 9.2.8."
+          }
+          if ($package.devDependencies.electron -ne "22.3.27") {
+            throw "Legacy Electron must remain pinned to 22.3.27."
+          }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure node-gyp Python
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          "PYTHON=$python" >> $env:GITHUB_ENV
+          "npm_config_python=$python" >> $env:GITHUB_ENV
+          python --version
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install legacy dependencies
+        run: npm ci
+
+      - name: Build legacy installer
+        run: npm run dist -- --publish never
+
+      - name: Validate legacy installer
+        id: installer
+        shell: pwsh
+        run: |
+          $expectedName = "iMenu Impressora Legacy Setup $env:VERSION.exe"
+          $expectedPath = Join-Path $PWD "dist/$expectedName"
+
+          if (-not (Test-Path $expectedPath)) {
+            $candidate = Get-ChildItem "dist" -Filter "*.exe" | Select-Object -First 1
+            if (-not $candidate) {
+              throw "Legacy installer was not generated."
+            }
+            Copy-Item $candidate.FullName $expectedPath -Force
+          }
+
+          $size = (Get-Item $expectedPath).Length
+          if ($size -lt 1000000) {
+            throw "Legacy installer is unexpectedly small: $size bytes"
+          }
+
+          $stream = [IO.File]::OpenRead($expectedPath)
+          try {
+            $first = $stream.ReadByte()
+            $second = $stream.ReadByte()
+          }
+          finally {
+            $stream.Dispose()
+          }
+          if ($first -ne 0x4D -or $second -ne 0x5A) {
+            throw "Legacy installer is not a valid Windows executable."
+          }
+
+          "path=$expectedPath" >> $env:GITHUB_OUTPUT
+          "name=$expectedName" >> $env:GITHUB_OUTPUT
+
+      - name: Save legacy build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: imenu-printer-windows7-legacy-${{ steps.source.outputs.version }}
+          path: dist/iMenu Impressora Legacy Setup ${{ steps.source.outputs.version }}.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit validated legacy source
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config.json index.html main.cjs preload.cjs receipt-settings.js package.json package-lock.json
+
+          if (git diff --cached --quiet) {
+            Write-Host "Legacy source is already synchronized."
+            exit 0
+          }
+
+          git commit -m "Sync printer $env:VERSION from $env:SOURCE_SHA [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Publish validated legacy release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:VERSION"
+          $asset = "${{ steps.installer.outputs.path }}"
+
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $asset --clobber
+            gh release edit $tag --draft=false
+          }
+          else {
+            gh release create $tag $asset --title "iMenu Impressora Legacy $env:VERSION" --notes "Windows 7, 8 e 8.1 compatible build synced from metrix0/imenu-printer@$env:SOURCE_SHA."
+          }

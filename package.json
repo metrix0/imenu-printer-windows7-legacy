@@ -1,0 +1,51 @@
+{
+  "name": "imenu-printer-app-legacy",
+  "version": "1.1.5",
+  "description": "iMenu Impressora Legacy",
+  "author": "iMenu",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron imenu-printer",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.39.6",
+    "iconv-lite": "^0.7.2",
+    "serialport": "9.2.8",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "22.3.27",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.imenu.impressora.legacy",
+    "productName": "iMenu Impressora Legacy",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "index.html",
+      "receipt-settings.js",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/serialport/**/*",
+      "node_modules/@serialport/**/*",
+      "node_modules/node-gyp-build/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "iMenu Impressora Legacy"
+    }
+  }
+}

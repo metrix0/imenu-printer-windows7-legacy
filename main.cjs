@@ -1267,6 +1267,10 @@ async function buildReceipt(supabase, orderId, receiptConfig = readConfig(), via
             return receiptConfig[viaKey]
         }
 
+        if (via === 2 && suffix === 'TITLE') {
+            return 'ENTREGA'
+        }
+
         if (Object.prototype.hasOwnProperty.call(receiptConfig, primaryKey)) {
             return receiptConfig[primaryKey]
         }
@@ -1899,7 +1903,7 @@ function showMainWindow() {
 async function createTray() {
     if (tray) return tray
 
-    const appIconPath = path.join(__dirname, 'app-icon.png')
+    const appIconPath = path.join(__dirname, 'favicon.png')
     let trayIcon = appIconPath
 
     if (!fs.existsSync(appIconPath)) {
@@ -1934,7 +1938,7 @@ function quitApplication() {
 }
 
 function createWindow() {
-    const appIconPath = path.join(__dirname, 'app-icon.png')
+    const appIconPath = path.join(__dirname, 'favicon.png')
 
     win = new BrowserWindow({
         width: 1080,

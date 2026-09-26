@@ -1,6 +1,6 @@
 {
   "name": "imenu-printer-app-legacy",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "iMenu Impressora Legacy",
   "author": "iMenu",
   "main": "main.cjs",

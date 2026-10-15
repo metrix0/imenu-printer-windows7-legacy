@@ -94,7 +94,6 @@ jobs:
         run: |
           $content = Get-Content "main.cjs" -Raw
           $content = $content.Replace("const { SerialPort } = require('serialport')", "const SerialPort = require('serialport')")
-          $content = $content.Replace("Get-Printer | Select-Object Name,PortName | ConvertTo-Json -Compress", "Get-WmiObject Win32_Printer | Select-Object Name,PortName | ConvertTo-Json -Compress")
           $content = $content -replace "new SerialPort\(\{\r?\n\s*path: config\.PRINTER_COM_PORT,", "new SerialPort(config.PRINTER_COM_PORT, {"
           $content = $content.Replace('const versionLabel = `Versão ${app.getVersion()}`', 'const versionLabel = `Versão ${app.getVersion()} Legacy`')
           [IO.File]::WriteAllText((Join-Path $PWD "main.cjs"), $content, [Text.UTF8Encoding]::new($false))
@@ -115,7 +114,7 @@ jobs:
           if ($content.Contains("const { SerialPort } = require('serialport')")) {
             throw "Modern serialport import is still present."
           }
-          if (-not $content.Contains("Get-WmiObject Win32_Printer | Select-Object Name,PortName | ConvertTo-Json -Compress")) {
+          if (-not $content.Contains("Get-Command Get-Printer -ErrorAction SilentlyContinue) { Get-Printer } else { Get-WmiObject Win32_Printer")) {
             throw "Windows 7 printer discovery compatibility was not applied."
           }
           if (-not $content.Contains("new SerialPort(config.PRINTER_COM_PORT, {")) {

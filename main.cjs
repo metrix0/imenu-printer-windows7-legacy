@@ -15,7 +15,7 @@ const iconv = require('iconv-lite')
 const baseDir = app.getPath('userData')
 const configPath = path.join(baseDir, 'config.json')
 
-const PRINTER_CONFIG_URL = 'https://www.imenuapp.com.br/api/printer/config'
+const PRINTER_CONFIG_URL = process.env.IMENU_PRINTER_CONFIG_URL || 'https://www.imenuapp.com.br/api/printer/config'
 const connectionConfigPath = path.join(baseDir, 'connection-config.json')
 let connectionConfig = null
 let remoteUpdatePolicy = null
@@ -657,6 +657,7 @@ function getSupabase(useServiceRole = false, authOptions = null) {
     const client = createClient(connectionConfig.supabaseUrl, connectionConfig.supabaseAnonKey, {
         auth: {
             storage: authStorage,
+            storageKey: 'sb-mjogdsnxbwhbqcoijrwt-auth-token',
             persistSession: true,
             autoRefreshToken: true,
             detectSessionInUrl: false,

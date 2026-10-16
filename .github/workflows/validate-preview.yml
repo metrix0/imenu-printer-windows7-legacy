@@ -1,0 +1,48 @@
+name: Validate legacy preview installer
+
+on:
+  push:
+    branches: [preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview-installer:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      npm_config_msvs_version: 2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Configure node-gyp
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          "PYTHON=$python" >> $env:GITHUB_ENV
+          "npm_config_python=$python" >> $env:GITHUB_ENV
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - run: npm ci
+      - name: Validate JavaScript
+        run: |
+          node --check main.cjs
+          node --check preload.cjs
+          node --check receipt-settings.js
+      - name: Build legacy test installer without publishing
+        run: npm run dist -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imenu-printer-legacy-preview-${{ github.sha }}
+          path: dist/**
+          if-no-files-found: error
+          retention-days: 14

@@ -114,7 +114,10 @@ jobs:
           if ($content.Contains("const { SerialPort } = require('serialport')")) {
             throw "Modern serialport import is still present."
           }
-          if (-not $content.Contains("Get-Command Get-Printer -ErrorAction SilentlyContinue) { Get-Printer } else { Get-WmiObject Win32_Printer")) {
+          if (-not $content.Contains("Get-Printer | Select-Object Name,PortName | ConvertTo-Json -Compress")) {
+            throw "Original Windows printer discovery was not preserved."
+          }
+          if (-not $content.Contains("Get-WmiObject Win32_Printer | ForEach-Object")) {
             throw "Windows 7 printer discovery compatibility was not applied."
           }
           if (-not $content.Contains("new SerialPort(config.PRINTER_COM_PORT, {")) {
